@@ -1,0 +1,18 @@
+[project]
+name = "tfsee"
+version = "0.1.0"
+description = "See your terraform plan: a dependency graph, drawn in the terminal, that plays the apply order."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = ["pillow>=10.1"]
+
+[project.scripts]
+tfsee = "tfsee.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
