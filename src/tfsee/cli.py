@@ -13,6 +13,30 @@ from .render import draw, png
 
 IMAGE_ID = 7317  # arbitrary; keeps our image separate from anything else on screen
 
+# `eval "$(tfsee hook zsh)"` makes a plain `terraform plan` draw the graph after its normal output.
+# Only plan is touched, only in an interactive terminal; every other command passes straight through.
+HOOK = r'''
+terraform() {
+  local sub="" chdir="." arg
+  for arg in "$@"; do
+    case "$arg" in
+      -chdir=*) chdir="${arg#-chdir=}" ;;
+      -*) ;;
+      *) sub="$arg"; break ;;
+    esac
+  done
+  if [ "$sub" = "plan" ] && [ -t 1 ] && command -v tfsee >/dev/null 2>&1; then
+    case " $* " in *" -out="*|*" -out "*) command terraform "$@"; return ;; esac
+    local out rc
+    out="$(mktemp -t tfsee).tfplan"
+    command terraform "$@" -out="$out"; rc=$?
+    [ $rc -eq 0 ] && tfsee "$chdir" --plan "$out" --quiet
+    return $rc  # plan file kept so the "terraform apply <file>" hint above still works
+  fi
+  command terraform "$@"
+}
+'''
+
 
 def _args(argv):
     p = argparse.ArgumentParser(prog="tfsee", description="See your terraform plan as a graph, in the terminal.")
@@ -24,6 +48,7 @@ def _args(argv):
     p.add_argument("--png", metavar="FILE", help="also save the graph as a PNG")
     p.add_argument("--no-animate", action="store_true", help="draw the finished plan only")
     p.add_argument("--speed", type=int, default=900, metavar="MS", help="ms per apply wave (default 900)")
+    p.add_argument("--quiet", action="store_true", help="skip the summary line (terraform already printed it)")
     return p.parse_args(argv)
 
 
@@ -34,6 +59,10 @@ def _summary_line(nodes) -> str:
 
 
 def main(argv=None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["hook"]:
+        print(HOOK.strip())  # the same function works in zsh and bash
+        return 0
     args = _args(argv)
     tf_args = [f"-var={v}" for v in args.var] + [f"-var-file={f}" for f in args.var_file]
     plan = load(args.dir, tf_args, plan_file=args.plan, json_file=args.json)
@@ -41,7 +70,8 @@ def main(argv=None) -> int:
     if not nodes:
         print("No resources in this plan.")
         return 0
-    print(_summary_line(nodes))
+    if not args.quiet:
+        print(_summary_line(nodes))
 
     final = draw(nodes)
     if args.png:
