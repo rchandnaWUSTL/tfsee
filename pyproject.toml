@@ -5,7 +5,23 @@ description = "See your terraform plan: a dependency graph, drawn in the termina
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
+authors = [{ name = "Roshan Chandna" }]
+keywords = ["terraform", "plan", "graph", "terminal", "ghostty", "kitty-graphics", "cli"]
+classifiers = [
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: System Administrators",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Topic :: System :: Systems Administration",
+]
 dependencies = ["pillow>=10.1"]
+
+[project.urls]
+Homepage = "https://github.com/rchandnaWUSTL/tfsee"
+Repository = "https://github.com/rchandnaWUSTL/tfsee"
+Issues = "https://github.com/rchandnaWUSTL/tfsee/issues"
 
 [project.scripts]
 tfsee = "tfsee.cli:main"

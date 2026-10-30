@@ -4,7 +4,7 @@
 
 Type `terraform plan` like you always do. After the usual output, tfsee draws every change as a dependency graph and plays it in the order Terraform will apply it.
 
-![tfsee drawing a terraform plan as an animated graph in Ghostty](docs/demo.gif)
+![tfsee drawing a terraform plan as an animated graph in Ghostty](https://raw.githubusercontent.com/rchandnaWUSTL/tfsee/main/docs/demo.gif)
 
 A 400-line text plan tells you what changes. It doesn't show you what depends on what, or which change lands first. tfsee does, without leaving the terminal.
 
@@ -15,8 +15,8 @@ You need Python 3.10+, Terraform, and a terminal that can draw images: [Ghostty]
 **1. Install**
 
 ```sh
-uv tool install git+https://github.com/rchandnaWUSTL/tfsee
-# or: pipx install git+https://github.com/rchandnaWUSTL/tfsee
+uv tool install tfsee
+# or: pipx install tfsee
 ```
 
 **2. Hook it into `terraform plan`**
