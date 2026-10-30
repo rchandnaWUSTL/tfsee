@@ -4,7 +4,8 @@
 - Puts the Ghostty window on a dark canvas, with rounded corners masked so no desktop shows through.
 - Pushes in on the prompt while `terraform plan` is typed, then pulls back over about a second as
   the output scrolls, landing on the whole terminal right as tfsee's graph appears.
-- Plays the graph's apply steps inside the terminal and ends on the finished graph.
+- Shows the graph appear in the full terminal, then eases in on it (as much as fits) while the
+  apply steps play, ending on the finished graph.
 - Adds a small Ghostty badge (icon pulled from the installed app at runtime, not stored in the repo).
 - Optionally ends on a short title card (--card).
 Timing (typing, output, graph) is detected from the recording, not hard-coded.
@@ -27,7 +28,8 @@ CANVAS_TOP, CANVAS_BOTTOM = (16, 20, 28), (6, 7, 10)
 CARD_SECONDS, FADE = 2.6, 0.45
 STEP_SECONDS = 0.9  # tfsee's default --speed; the graph shows step 1 the moment it appears
 FREEZE = 1.2  # hold on the finished graph at the end
-FOCUS_ZOOM, FOCUS_IN, PULL_BACK = 1.5, 0.9, 1.4  # push-in on the command; seconds to ease in / pull back
+FOCUS_ZOOM, FOCUS_IN, PULL_BACK = 1.5, 0.9, 1.4
+GRAPH_DELAY = 0.4  # let the graph appear in the full terminal before easing in on it  # push-in on the command; seconds to ease in / pull back
 
 
 def font(size: int, mono: bool = False):
@@ -145,6 +147,15 @@ def main() -> None:
     vy = min(max(cy - vh / 2, 0), H - vh)
     focus_view, full_view = (vx, vy, vx + vw, vy + vh), (0, 0, W, H)
 
+    # Same mild push-in for the graph, limited so the whole graph stays in frame.
+    pb = panel_box(src[min(len(src) - 1, t_graph + FPS)])
+    gx0, gy0, gx1, gy1 = (win[0] + pb[0] * scale, win[1] + pb[1] * scale, win[0] + pb[2] * scale, win[1] + pb[3] * scale)
+    gz = min(FOCUS_ZOOM, W * 0.94 / (gx1 - gx0), H * 0.94 / (gy1 - gy0))
+    gw, gh = W / gz, H / gz
+    gvx = min(max((gx0 + gx1) / 2 - gw / 2, 0), W - gw)
+    gvy = min(max((gy0 + gy1) / 2 - gh / 2, 0), H - gh)
+    graph_view = (gvx, gvy, gvx + gw, gvy + gh)
+
     # Badge: ghost + name, bottom right; it stays put while the camera moves.
     badge = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     bd = ImageDraw.Draw(badge)
@@ -156,11 +167,10 @@ def main() -> None:
         badge.alpha_composite(icon, (int(tx - 58), H - 80))
     bd.text((tx, H - 80 + (48 - 24) / 2 - 3), label, font=lf, fill=(230, 237, 243, 255))
 
-    def compose(frame: Image.Image, k: float) -> Image.Image:
+    def compose(frame: Image.Image, v) -> Image.Image:
         out = base.copy()
         out.paste(frame.resize((fit_w, fit_h), Image.LANCZOS), win, mask)
-        if k > 0:
-            v = lerp(full_view, focus_view, k)
+        if tuple(v) != full_view:
             out = out.crop(tuple(round(x) for x in v)).resize((W, H), Image.LANCZOS)
         out = out.convert("RGBA")
         out.alpha_composite(badge)
@@ -184,11 +194,13 @@ def main() -> None:
     start_in = max(0, t_type - int(0.35 * FPS))
     last = None
     for i in range(end):
-        if i < t_output:
-            k = ease((i - start_in) / (FOCUS_IN * FPS))  # push in while the command is typed
-        else:
-            k = 1 - ease((i - t_output) / (PULL_BACK * FPS))  # pull back as the output scrolls
-        last = compose(src[i], k)
+        if i < t_output:  # push in while the command is typed
+            view = lerp(full_view, focus_view, ease((i - start_in) / (FOCUS_IN * FPS)))
+        elif i < t_graph:  # pull back as the output scrolls
+            view = lerp(focus_view, full_view, ease((i - t_output) / (PULL_BACK * FPS)))
+        else:  # the graph appears in the full terminal, then a mild push-in on it
+            view = lerp(full_view, graph_view, ease((i - t_graph - GRAPH_DELAY * FPS) / (FOCUS_IN * FPS)))
+        last = compose(src[i], view)
         enc.stdin.write(last.tobytes())
     for _ in range(int(FREEZE * FPS)):
         enc.stdin.write(last.tobytes())
