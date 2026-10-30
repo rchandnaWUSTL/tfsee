@@ -18,6 +18,12 @@ cmd="terraform plan"
 for ((i = 1; i <= ${#cmd}; i++)); do printf '%s' "${cmd[i]}"; sleep 0.05; done
 sleep 0.3
 echo
-terraform plan -compact-warnings
+# Same as the hook (plan to .terraform/tfsee.tfplan, then tfsee), but Terraform's output is printed
+# line by line so the recording shows it scrolling instead of appearing all at once.
+mkdir -p .terraform
+command terraform plan -compact-warnings -out=.terraform/tfsee.tfplan | while IFS= read -r line; do
+  print -r -- "$line"; sleep 0.028
+done
+tfsee . --plan .terraform/tfsee.tfplan --quiet
 prompt
 sleep ${DEMO_HOLD:-30}

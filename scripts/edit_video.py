@@ -27,7 +27,7 @@ CANVAS_TOP, CANVAS_BOTTOM = (16, 20, 28), (6, 7, 10)
 CARD_SECONDS, FADE = 2.6, 0.45
 STEP_SECONDS = 0.9  # tfsee's default --speed; the graph shows step 1 the moment it appears
 FREEZE = 1.2  # hold on the finished graph at the end
-FOCUS_ZOOM, FOCUS_IN, PULL_BACK = 1.5, 0.9, 1.0  # push-in on the command; seconds to ease in / pull back
+FOCUS_ZOOM, FOCUS_IN, PULL_BACK = 1.5, 0.9, 1.4  # push-in on the command; seconds to ease in / pull back
 
 
 def font(size: int, mono: bool = False):
