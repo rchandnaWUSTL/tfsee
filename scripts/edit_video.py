@@ -2,10 +2,12 @@
 """Edit a raw screen recording of scripts/demo.sh into a post-ready 1080p video.
 
 - Puts the Ghostty window on a dark canvas, with rounded corners masked so no desktop shows through.
-- Detects when tfsee's graph appears and eases the camera in on it, so it reads on a phone.
-- After the first run through the apply steps, eases back out so you see the graph inside the terminal.
+- Pushes in on the prompt while `terraform plan` is typed, then pulls back over about a second as
+  the output scrolls, landing on the whole terminal right as tfsee's graph appears.
+- Plays the graph's apply steps inside the terminal and ends on the finished graph.
 - Adds a small Ghostty badge (icon pulled from the installed app at runtime, not stored in the repo).
 - Optionally ends on a short title card (--card).
+Timing (typing, output, graph) is detected from the recording, not hard-coded.
 
 Usage: python scripts/edit_video.py raw.mov out.mp4 [--icon /path/to/icon.png]
 """
@@ -22,9 +24,10 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 W, H, FPS = 1920, 1080, 30
 PANEL = (13, 17, 23)  # tfsee's graph background (#0d1117)
 CANVAS_TOP, CANVAS_BOTTOM = (16, 20, 28), (6, 7, 10)
-ZOOM_SECONDS, CARD_SECONDS, FADE = 0.8, 2.6, 0.45
+CARD_SECONDS, FADE = 2.6, 0.45
 STEP_SECONDS = 0.9  # tfsee's default --speed; the graph shows step 1 the moment it appears
-ZOOMED_AFTER_LAST_STEP, FREEZE = 0.3, 1.2  # brief linger on the finished graph; freeze on the last frame
+FREEZE = 1.2  # hold on the finished graph at the end
+FOCUS_ZOOM, FOCUS_IN, PULL_BACK = 1.5, 0.9, 1.0  # push-in on the command; seconds to ease in / pull back
 
 
 def font(size: int, mono: bool = False):
@@ -90,15 +93,28 @@ def main() -> None:
     size = probe(args.raw)
     src = list(frames(args.raw, size))
 
-    # When does the graph appear, and where is it?
+    # Timing, from the pixels: when the graph appears, when typing starts, when the output lands.
     t_graph = next((i for i, f in enumerate(src) if i % 3 == 0 and panel_box(f)), None)
     if t_graph is None:
         raise SystemExit("couldn't find tfsee's graph in the recording")
-    box = panel_box(src[min(len(src) - 1, t_graph + FPS * 2)])
-    pad_x, pad_y = 2, 2  # crop to the graph panel itself; any looser shows clipped terminal text around it
-    zoom_src = (box[0] - pad_x, box[1] - pad_y, box[2] + pad_x, box[3] + pad_y)
+    prompt_band = (0, int(size[1] * 0.12))
+
+    def bright(f, box):
+        return f.crop(box).convert("L").point(lambda v: 255 if v > 150 else 0)
+
+    def right_edge(f):  # rightmost bright pixel on the prompt line; the cursor never moves it right
+        b = bright(f, (0, prompt_band[0], size[0], prompt_band[1])).getbbox()
+        return b[2] if b else 0
+
+    def rows_below(f):  # 8px stripes with text under the prompt line (Terraform's output)
+        g = bright(f, (0, prompt_band[1], size[0], size[1]))
+        return sum(1 for y in range(0, g.height, 8) if g.crop((0, y, g.width, y + 8)).getbbox())
+
+    char_w = size[0] / 118  # demo window is 118 columns wide
+    prompt_edge = max(right_edge(f) for f in src[:FPS // 2])  # prompt plus the blinking cursor
+    t_type = next(i for i in range(t_graph) if right_edge(src[i]) > prompt_edge + 1.5 * char_w)
+    t_output = next(i for i in range(t_type, t_graph) if rows_below(src[i]) > 10)
     steps = 6  # the demo plan's apply steps (examples/demo)
-    t_out = t_graph + int((steps * STEP_SECONDS + ZOOMED_AFTER_LAST_STEP) * FPS)
     # tfsee holds the finished graph for 3 steps' worth, then loops; end just before it restarts.
     end = min(len(src), t_graph + int((steps + 3) * STEP_SECONDS * FPS) - 2)
 
@@ -108,44 +124,49 @@ def main() -> None:
     for y in range(H):
         cd.line((0, y, W, y), fill=tuple(round(c) for c in lerp(CANVAS_TOP, CANVAS_BOTTOM, y / H)))
 
-    full_src = (0, 0, size[0], size[1])
-    fit_h = 940
-    fit_w = fit_h * size[0] / size[1]
-    full_dst = ((W - fit_w) / 2, (H - fit_h) / 2 - 10, (W + fit_w) / 2, (H + fit_h) / 2 - 10)
-    zw = 1800
-    zh = zw * (zoom_src[3] - zoom_src[1]) / (zoom_src[2] - zoom_src[0])
-    zoom_dst = ((W - zw) / 2, (H - zh) / 2 - 20, (W + zw) / 2, (H + zh) / 2 - 20)
+    fit_h = 960
+    fit_w = round(fit_h * size[0] / size[1])
+    win = ((W - fit_w) // 2, (H - fit_h) // 2)
+    mask = Image.new("L", (fit_w, fit_h), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, fit_w - 1, fit_h - 1), radius=20, fill=255)
+    shadow = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(shadow).rounded_rectangle((win[0], win[1] + 16, win[0] + fit_w, win[1] + fit_h + 16), radius=24, fill=150)
+    shadow = shadow.filter(ImageFilter.GaussianBlur(28))
+    base = canvas.copy()
+    base.paste((0, 0, 0), (0, 0), shadow)
 
-    # Badge: ghost + label, bottom right.
+    # Where the typed command sits on the canvas: the push-in centers on it (kept inside the canvas).
+    typed = bright(src[t_output - 1], (0, prompt_band[0], size[0], prompt_band[1])).getbbox() or (0, 0, size[0] // 3, prompt_band[1])
+    scale = fit_w / size[0]
+    cx = win[0] + (typed[0] + typed[2]) / 2 * scale
+    cy = win[1] + (prompt_band[0] + (typed[1] + typed[3]) / 2) * scale
+    vw, vh = W / FOCUS_ZOOM, H / FOCUS_ZOOM
+    vx = min(max(cx - vw / 2, 0), W - vw)
+    vy = min(max(cy - vh / 2, 0), H - vh)
+    focus_view, full_view = (vx, vy, vx + vw, vy + vh), (0, 0, W, H)
+
+    # Badge: ghost + name, bottom right; it stays put while the camera moves.
     badge = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     bd = ImageDraw.Draw(badge)
     label = "Ghostty 1.4"
-    lf = font(28)
-    tx = W - 48 - lf.getlength(label)
+    lf = font(24)
+    tx = W - 40 - lf.getlength(label)  # sits right of the window, never on top of it
     if args.icon and args.icon.exists():
-        icon = Image.open(args.icon).convert("RGBA").resize((58, 58), Image.LANCZOS)
-        badge.alpha_composite(icon, (int(tx - 70), H - 92))
-    bd.text((tx, H - 92 + (58 - 28) / 2 - 3), label, font=lf, fill=(230, 237, 243, 255))
-
-    def window_mask(w: int, h: int, radius: int):
-        m = Image.new("L", (w, h), 0)
-        ImageDraw.Draw(m).rounded_rectangle((0, 0, w - 1, h - 1), radius=radius, fill=255)
-        return m
+        icon = Image.open(args.icon).convert("RGBA").resize((48, 48), Image.LANCZOS)
+        badge.alpha_composite(icon, (int(tx - 58), H - 80))
+    bd.text((tx, H - 80 + (48 - 24) / 2 - 3), label, font=lf, fill=(230, 237, 243, 255))
 
     def compose(frame: Image.Image, k: float) -> Image.Image:
-        s = lerp(full_src, zoom_src, k)
-        d = lerp(full_dst, zoom_dst, k)
-        view = frame.crop(tuple(round(v) for v in s)).resize((round(d[2] - d[0]), round(d[3] - d[1])), Image.LANCZOS)
-        out = canvas.copy()
-        shadow = Image.new("L", (W, H), 0)
-        ImageDraw.Draw(shadow).rounded_rectangle((d[0], d[1] + 16, d[2], d[3] + 16), radius=24, fill=150)
-        out.paste((0, 0, 0), (0, 0), shadow.filter(ImageFilter.GaussianBlur(28)))
-        out.paste(view, (round(d[0]), round(d[1])), window_mask(view.width, view.height, round(22 * (1 - k) + 14 * k)))
+        out = base.copy()
+        out.paste(frame.resize((fit_w, fit_h), Image.LANCZOS), win, mask)
+        if k > 0:
+            v = lerp(full_view, focus_view, k)
+            out = out.crop(tuple(round(x) for x in v)).resize((W, H), Image.LANCZOS)
         out = out.convert("RGBA")
         out.alpha_composite(badge)
         return out.convert("RGB")
 
-    # End card.
+    # End card (optional).
     card = canvas.copy().convert("RGBA")
     cdraw = ImageDraw.Draw(card)
     if args.icon and args.icon.exists():
@@ -160,22 +181,24 @@ def main() -> None:
     enc = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
                             "-r", str(FPS), "-i", "-", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "17",
                             "-preset", "slow", "-movflags", "+faststart", str(args.out)], stdin=subprocess.PIPE)
+    start_in = max(0, t_type - int(0.35 * FPS))
     last = None
     for i in range(end):
-        k = ease((i - t_graph) / (ZOOM_SECONDS * FPS)) if i >= t_graph else 0.0
-        if i >= t_out:  # zoom back out to the whole terminal
-            k = 1.0 - ease((i - t_out) / (ZOOM_SECONDS * FPS))
+        if i < t_output:
+            k = ease((i - start_in) / (FOCUS_IN * FPS))  # push in while the command is typed
+        else:
+            k = 1 - ease((i - t_output) / (PULL_BACK * FPS))  # pull back as the output scrolls
         last = compose(src[i], k)
         enc.stdin.write(last.tobytes())
-    for _ in range(int(FREEZE * FPS)):  # hold on the finished graph inside the terminal
+    for _ in range(int(FREEZE * FPS)):
         enc.stdin.write(last.tobytes())
     for j in range(int(CARD_SECONDS * FPS) if args.card else 0):
-        a = ease(j / (FADE * FPS))
-        enc.stdin.write(Image.blend(last, card, a).tobytes())
+        enc.stdin.write(Image.blend(last, card, ease(j / (FADE * FPS))).tobytes())
     enc.stdin.close()
     enc.wait()
     total = end + FREEZE * FPS + (CARD_SECONDS * FPS if args.card else 0)
-    print(f"graph appears at {t_graph / FPS:.1f}s · zooms out at {t_out / FPS:.1f}s · wrote {args.out} ({total / FPS:.1f}s)")
+    print(f"typing {t_type / FPS:.1f}s · output {t_output / FPS:.1f}s · graph {t_graph / FPS:.1f}s · "
+          f"wrote {args.out} ({total / FPS:.1f}s)")
 
 
 if __name__ == "__main__":
