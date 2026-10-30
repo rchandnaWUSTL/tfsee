@@ -4,8 +4,8 @@
 - Puts the Ghostty window on a dark canvas, with rounded corners masked so no desktop shows through.
 - Pushes in on the prompt while `terraform plan` is typed, then pulls back over about a second as
   the output scrolls, landing on the whole terminal right as tfsee's graph appears.
-- Shows the graph appear in the full terminal, then eases in on it (as much as fits) while the
-  apply steps play, ending on the finished graph.
+- Shows the graph appear in the full terminal, eases in on it (as much as fits) while the apply
+  steps play, then a beat after the last step zooms back out and ends on the whole terminal.
 - Adds a small Ghostty badge (icon pulled from the installed app at runtime, not stored in the repo).
 - Optionally ends on a short title card (--card).
 Timing (typing, output, graph) is detected from the recording, not hard-coded.
@@ -29,7 +29,8 @@ CARD_SECONDS, FADE = 2.6, 0.45
 STEP_SECONDS = 0.9  # tfsee's default --speed; the graph shows step 1 the moment it appears
 FREEZE = 1.2  # hold on the finished graph at the end
 FOCUS_ZOOM, FOCUS_IN, PULL_BACK = 1.5, 0.9, 1.4
-GRAPH_DELAY = 0.4  # let the graph appear in the full terminal before easing in on it  # push-in on the command; seconds to ease in / pull back
+GRAPH_DELAY = 0.4  # let the graph appear in the full terminal before easing in on it
+BEAT = 0.5  # after the last apply step, pause this long before zooming back out  # push-in on the command; seconds to ease in / pull back
 
 
 def font(size: int, mono: bool = False):
@@ -192,14 +193,17 @@ def main() -> None:
                             "-r", str(FPS), "-i", "-", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "17",
                             "-preset", "slow", "-movflags", "+faststart", str(args.out)], stdin=subprocess.PIPE)
     start_in = max(0, t_type - int(0.35 * FPS))
+    t_back = t_graph + int((steps * STEP_SECONDS + BEAT) * FPS)
     last = None
     for i in range(end):
         if i < t_output:  # push in while the command is typed
             view = lerp(full_view, focus_view, ease((i - start_in) / (FOCUS_IN * FPS)))
         elif i < t_graph:  # pull back as the output scrolls
             view = lerp(focus_view, full_view, ease((i - t_output) / (PULL_BACK * FPS)))
-        else:  # the graph appears in the full terminal, then a mild push-in on it
+        elif i < t_back:  # the graph appears in the full terminal, then a mild push-in on it
             view = lerp(full_view, graph_view, ease((i - t_graph - GRAPH_DELAY * FPS) / (FOCUS_IN * FPS)))
+        else:  # a beat after the last step, back out to the whole terminal
+            view = lerp(graph_view, full_view, ease((i - t_back) / (FOCUS_IN * FPS)))
         last = compose(src[i], view)
         enc.stdin.write(last.tobytes())
     for _ in range(int(FREEZE * FPS)):
