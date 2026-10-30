@@ -16,11 +16,12 @@ from PIL import Image, ImageDraw, ImageFont
 
 from .plan import Node, resource_of, summary
 
-# Validated (dataviz validate_palette.js, dark mode, all pairs): colorblind ΔE ≥ 8.7, normal ΔE ≥ 16.9,
-# contrast ≥ 3:1 on BG. Slightly lighter than the dark-mode band on purpose: amber darkened into the
-# band becomes indistinguishable from red, and these colors only draw outlines, edges and swatches.
-COLORS = {"create": "#3fbfa8", "update": "#e8b13a", "replace": "#a98bff", "delete": "#ff6f61",
-          "read": "#58a6ff", "no-op": "#6e7681"}
+# HashiCorp product colors (Helios dark-mode accents): Waypoint teal, Vault yellow, Terraform purple,
+# Boundary red, Packer blue. Validated (dataviz validate_palette.js, dark mode, all pairs): colorblind
+# ΔE ≥ 11.8, normal ΔE ≥ 25.3, contrast ≥ 3:1 on BG. Brighter than the dark-mode lightness band, which
+# is fine here: they only draw outlines, edges and swatches; box fills are 20% tints.
+COLORS = {"create": "#14c6cb", "update": "#ffcf25", "replace": "#b87fff", "delete": "#f24c53",
+          "read": "#02a8ef", "no-op": "#6e7681"}
 SYMBOLS = {"create": "+", "update": "~", "delete": "-", "replace": "±", "read": "<=", "no-op": "·"}
 BG, INK, MUTED, FAINT, EDGE = "#0d1117", "#e6edf3", "#8b949e", "#484f58", "#262c34"
 FONTS = ["/System/Library/Fonts/SFNSMono.ttf", "/System/Library/Fonts/Menlo.ttc",

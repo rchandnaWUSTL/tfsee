@@ -5,6 +5,7 @@ cd "${0:A:h}/../examples/demo" || exit 1
 terraform apply -auto-approve -input=false >/dev/null 2>&1
 eval "$(tfsee hook zsh)"
 clear
+printf '\e]0;tfsee in Ghostty 1.4\a'  # window title, so the recording shows what's drawing it
 # For automated recording: hold here until the recorder removes this file.
 while [ -f /tmp/tfsee_demo_wait ]; do sleep 0.1; done
 prompt() { printf '\e[38;5;244m~/infra\e[0m \e[38;5;79m❯\e[0m '; }
