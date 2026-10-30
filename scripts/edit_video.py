@@ -3,8 +3,9 @@
 
 - Puts the Ghostty window on a dark canvas, with rounded corners masked so no desktop shows through.
 - Detects when tfsee's graph appears and eases the camera in on it, so it reads on a phone.
+- After the first run through the apply steps, eases back out so you see the graph inside the terminal.
 - Adds a small Ghostty badge (icon pulled from the installed app at runtime, not stored in the repo).
-- Ends on a short title card.
+- Optionally ends on a short title card (--card).
 
 Usage: python scripts/edit_video.py raw.mov out.mp4 [--icon /path/to/icon.png]
 """
@@ -21,7 +22,9 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 W, H, FPS = 1920, 1080, 30
 PANEL = (13, 17, 23)  # tfsee's graph background (#0d1117)
 CANVAS_TOP, CANVAS_BOTTOM = (16, 20, 28), (6, 7, 10)
-ZOOM_SECONDS, HOLD_AFTER_GRAPH, CARD_SECONDS, FADE = 0.8, 11.0, 2.6, 0.45
+ZOOM_SECONDS, CARD_SECONDS, FADE = 0.8, 2.6, 0.45
+STEP_SECONDS = 0.9  # tfsee's default --speed; the graph shows step 1 the moment it appears
+ZOOMED_AFTER_LAST_STEP, FREEZE = 0.3, 1.2  # brief linger on the finished graph; freeze on the last frame
 
 
 def font(size: int, mono: bool = False):
@@ -81,6 +84,7 @@ def main() -> None:
     ap.add_argument("raw", type=Path)
     ap.add_argument("out", type=Path)
     ap.add_argument("--icon", type=Path, help="Ghostty icon PNG (extract with sips from Ghostty.app)")
+    ap.add_argument("--card", action="store_true", help="end on a title card")
     args = ap.parse_args()
 
     size = probe(args.raw)
@@ -93,7 +97,10 @@ def main() -> None:
     box = panel_box(src[min(len(src) - 1, t_graph + FPS * 2)])
     pad_x, pad_y = 2, 2  # crop to the graph panel itself; any looser shows clipped terminal text around it
     zoom_src = (box[0] - pad_x, box[1] - pad_y, box[2] + pad_x, box[3] + pad_y)
-    end = min(len(src), t_graph + int(HOLD_AFTER_GRAPH * FPS))
+    steps = 6  # the demo plan's apply steps (examples/demo)
+    t_out = t_graph + int((steps * STEP_SECONDS + ZOOMED_AFTER_LAST_STEP) * FPS)
+    # tfsee holds the finished graph for 3 steps' worth, then loops; end just before it restarts.
+    end = min(len(src), t_graph + int((steps + 3) * STEP_SECONDS * FPS) - 2)
 
     # Canvas: subtle vertical gradient.
     canvas = Image.new("RGB", (W, H))
@@ -112,14 +119,13 @@ def main() -> None:
     # Badge: ghost + label, bottom right.
     badge = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     bd = ImageDraw.Draw(badge)
-    label, sub = "Ghostty 1.4", "Kitty graphics"
-    lf, sf = font(26), font(18)
-    tx = W - 48 - max(lf.getlength(label), sf.getlength(sub))
+    label = "Ghostty 1.4"
+    lf = font(28)
+    tx = W - 48 - lf.getlength(label)
     if args.icon and args.icon.exists():
         icon = Image.open(args.icon).convert("RGBA").resize((58, 58), Image.LANCZOS)
         badge.alpha_composite(icon, (int(tx - 70), H - 92))
-    bd.text((tx, H - 92), label, font=lf, fill=(230, 237, 243, 255))
-    bd.text((tx, H - 60), sub, font=sf, fill=(139, 148, 158, 255))
+    bd.text((tx, H - 92 + (58 - 28) / 2 - 3), label, font=lf, fill=(230, 237, 243, 255))
 
     def window_mask(w: int, h: int, radius: int):
         m = Image.new("L", (w, h), 0)
@@ -157,14 +163,19 @@ def main() -> None:
     last = None
     for i in range(end):
         k = ease((i - t_graph) / (ZOOM_SECONDS * FPS)) if i >= t_graph else 0.0
+        if i >= t_out:  # zoom back out to the whole terminal
+            k = 1.0 - ease((i - t_out) / (ZOOM_SECONDS * FPS))
         last = compose(src[i], k)
         enc.stdin.write(last.tobytes())
-    for j in range(int(CARD_SECONDS * FPS)):
+    for _ in range(int(FREEZE * FPS)):  # hold on the finished graph inside the terminal
+        enc.stdin.write(last.tobytes())
+    for j in range(int(CARD_SECONDS * FPS) if args.card else 0):
         a = ease(j / (FADE * FPS))
         enc.stdin.write(Image.blend(last, card, a).tobytes())
     enc.stdin.close()
     enc.wait()
-    print(f"graph appears at {t_graph / FPS:.1f}s · wrote {args.out} ({(end + CARD_SECONDS * FPS) / FPS:.1f}s)")
+    total = end + FREEZE * FPS + (CARD_SECONDS * FPS if args.card else 0)
+    print(f"graph appears at {t_graph / FPS:.1f}s · zooms out at {t_out / FPS:.1f}s · wrote {args.out} ({total / FPS:.1f}s)")
 
 
 if __name__ == "__main__":
