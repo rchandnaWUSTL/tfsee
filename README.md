@@ -79,6 +79,7 @@ tfsee --png plan.png           # also save it as an image
 | Option | What it does |
 |---|---|
 | `--speed MS` | Milliseconds per apply step in the animation (default 900) |
+| `--all` | Draw every resource, even in plans over 60 (by default big plans show only what changes) |
 | `--quiet` | Skip tfsee's summary line (the hook uses this, since Terraform already prints one) |
 | `TFSEE_TEXT_SCALE=1.4` | Bigger text in the graph, useful for screenshots and talks |
 
@@ -105,7 +106,8 @@ tfsee only reads your plan. It never runs `apply`, and nothing leaves your machi
 ## Limitations
 
 - **Apply steps are an approximation.** Terraform applies in parallel and orders destroys separately, so read the graph as "what depends on what," not as a timeline.
-- **Large plans get wide.** It works best on plans of up to a few dozen resources. Very large plans still render, but you may want `--png` and an image viewer.
+- **Big plans show only what changes.** Over 60 resources, tfsee draws just the changed ones. Lines still follow dependencies that run through unchanged resources, so the order stays right. `--all` draws everything. A 2,000-resource plan renders in under a second.
+- **Very big graphs don't animate.** Over 150 drawn resources, tfsee shows the finished graph as a still image.
 - **Data sources aren't drawn.** Only managed resources appear.
 
 ## Development

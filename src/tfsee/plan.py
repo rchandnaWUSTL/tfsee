@@ -96,15 +96,65 @@ def build(plan: dict) -> dict[str, Node]:
         refs = config.get(res) if res in config else prior.get(addr, set())
         node.deps = {d for ref in refs for d in by_resource.get(ref, []) if d != addr}
 
-    def wave(addr: str, seen: frozenset = frozenset()) -> int:
-        if addr in seen:  # cycle guard; Terraform rejects cycles, but be safe
-            return 0
-        deps = nodes[addr].deps
-        return 0 if not deps else 1 + max(wave(d, seen | {addr}) for d in deps)
+    return assign_waves(nodes)
 
+
+def assign_waves(nodes: dict[str, Node]) -> dict[str, Node]:
+    """Apply step = longest dependency chain below a resource. Kahn's topological order makes this
+    linear in resources + edges; anything left on a cycle (Terraform rejects those) keeps step 0."""
+    for node in nodes.values():
+        node.wave = 0
+    dependents: dict[str, list[str]] = {a: [] for a in nodes}
     for addr, node in nodes.items():
-        node.wave = wave(addr)
+        for dep in node.deps:
+            dependents[dep].append(addr)
+    waiting = {a: len(n.deps) for a, n in nodes.items()}
+    ready = [a for a, count in waiting.items() if count == 0]
+    while ready:
+        addr = ready.pop()
+        for nxt in dependents[addr]:
+            nodes[nxt].wave = max(nodes[nxt].wave, nodes[addr].wave + 1)
+            waiting[nxt] -= 1
+            if waiting[nxt] == 0:
+                ready.append(nxt)
     return nodes
+
+
+def focus(nodes: dict[str, Node]) -> dict[str, Node]:
+    """Only the resources that change. A changed resource depends on another changed one if there's
+    a path between them, even through unchanged resources, so the order of changes stays true while
+    the hundreds of no-ops in a big plan drop out."""
+    changed = {a for a, n in nodes.items() if n.action != "no-op"}
+    kept = {}
+    for c in changed:
+        found, seen, stack = set(), set(), list(nodes[c].deps)
+        while stack:
+            d = stack.pop()
+            if d in seen:
+                continue
+            seen.add(d)
+            if d in changed:
+                found.add(d)  # nearest changed ancestor on this path; stop here
+            else:
+                stack.extend(nodes[d].deps)
+        kept[c] = Node(c, nodes[c].action, found)
+    # Transitive reduction: drop a line A->C when A already reaches C through another kept resource.
+    # Same order, far fewer lines.
+    ancestors: dict[str, set[str]] = {}
+
+    def reach(a: str, stack: frozenset = frozenset()) -> set[str]:
+        if a not in ancestors:
+            ancestors[a] = set()  # placeholder also breaks cycles
+            out = set()
+            for d in kept[a].deps:
+                if d not in stack:
+                    out |= {d} | reach(d, stack | {a})
+            ancestors[a] = out
+        return ancestors[a]
+
+    for node in kept.values():
+        node.deps = {d for d in node.deps if not any(d in reach(e) for e in node.deps if e != d)}
+    return assign_waves(kept)
 
 
 def summary(nodes: dict[str, Node]) -> tuple[int, int, int]:

@@ -23,6 +23,7 @@ from .plan import Node, resource_of, summary
 COLORS = {"create": "#14c6cb", "update": "#ffcf25", "replace": "#b87fff", "delete": "#f24c53",
           "read": "#02a8ef", "no-op": "#6e7681"}
 SYMBOLS = {"create": "+", "update": "~", "delete": "-", "replace": "±", "read": "<=", "no-op": "·"}
+MAX_ROWS = 12  # a step with more resources wraps into side-by-side sub-columns instead of one tall column
 BG, INK, MUTED, FAINT, EDGE = "#0d1117", "#e6edf3", "#8b949e", "#484f58", "#262c34"
 FONTS = ["/System/Library/Fonts/SFNSMono.ttf", "/System/Library/Fonts/Menlo.ttc",
          "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "DejaVuSansMono.ttf"]
@@ -55,7 +56,10 @@ def _order(nodes: dict[str, Node]) -> list[list[str]]:
     """Columns by apply step; order within columns by barycenter sweeps to cut edge crossings."""
     steps = max((n.wave for n in nodes.values()), default=0)
     columns = [sorted(a for a, n in nodes.items() if n.wave == w) for w in range(steps + 1)]
-    dependents = {a: [b for b, n in nodes.items() if a in n.deps] for a in nodes}
+    dependents: dict[str, list[str]] = {a: [] for a in nodes}
+    for b, n in nodes.items():
+        for a in n.deps:
+            dependents[a].append(b)
     pos = {a: i for col in columns for i, a in enumerate(col)}
 
     def sweep(col: list[str], neighbors) -> None:
@@ -89,9 +93,12 @@ def draw(nodes: dict[str, Node], applied_through: int | None = None, scale: int 
     for a, n in nodes.items():
         prefix, name = _split(a)
         width_of[a] = max(name_font.getbbox(f"{SYMBOLS[n.action]} {name}")[2], type_font.getbbox(prefix)[2]) + 2 * pad_x
-    col_w = [max(width_of[a] for a in col) for col in columns]
-    tallest = max(len(c) for c in columns)
-    graph_w = sum(col_w) + gap_x * (len(columns) - 1)
+    # (step, resources, first chunk of its step?): long steps wrap into sub-columns spaced closer together.
+    visual = [(w, col[j:j + MAX_ROWS], j == 0) for w, col in enumerate(columns) for j in range(0, len(col), MAX_ROWS)]
+    col_w = [max(width_of[a] for a in chunk) for _, chunk, _ in visual]
+    tallest = max(len(chunk) for _, chunk, _ in visual)
+    gap_after = [gap_x if k + 1 < len(visual) and visual[k + 1][2] else gap_x * 0.3 for k in range(len(visual))]
+    graph_w = sum(col_w) + sum(gap_after[:-1])
     graph_h = tallest * (box_h + gap_y) - gap_y
 
     margin, head, step_row, foot = 32 * s, 58 * s, 26 * s, 44 * s
@@ -118,15 +125,15 @@ def draw(nodes: dict[str, Node], applied_through: int | None = None, scale: int 
 
     # Boxes and step labels.
     boxes, x = {}, ox
-    for w, col in enumerate(columns):
-        label = f"step {w + 1}"
-        live = applied_through is not None and w == applied_through
-        d.text((x, oy - step_row), label, font=small, fill=INK if live else FAINT)
+    for k, (w, col, first) in enumerate(visual):
+        if first:
+            live = applied_through is not None and w == applied_through
+            d.text((x, oy - step_row), f"step {w + 1}", font=small, fill=INK if live else FAINT)
         offset = (tallest - len(col)) * (box_h + gap_y) / 2
         for i, a in enumerate(col):
             y = oy + offset + i * (box_h + gap_y)
             boxes[a] = (x, y, x + width_of[a], y + box_h)
-        x += col_w[w] + gap_x
+        x += col_w[k] + gap_after[k]
 
     def state(n: Node) -> str:
         if applied_through is None or n.action == "no-op":

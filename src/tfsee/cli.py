@@ -8,10 +8,12 @@ import sys
 import time
 
 from . import kitty
-from .plan import build, load, summary
+from .plan import build, focus, load, summary
 from .render import draw, png
 
 IMAGE_ID = 7317  # arbitrary; keeps our image separate from anything else on screen
+FOCUS_OVER = 60      # bigger plans: show only what changes (--all shows everything)
+ANIMATE_UP_TO = 150  # beyond this, frames get too big to stream to a terminal; draw a still image
 
 # `eval "$(tfsee hook zsh)"` makes a plain `terraform plan` draw the graph after its normal output.
 # Only plan is touched, only in an interactive terminal; every other command passes straight through.
@@ -48,6 +50,7 @@ def _args(argv):
     p.add_argument("--json", metavar="FILE", help="use `terraform show -json` output (- for stdin)")
     p.add_argument("--png", metavar="FILE", help="also save the graph as a PNG")
     p.add_argument("--no-animate", action="store_true", help="draw the finished plan only")
+    p.add_argument("--all", action="store_true", help=f"draw every resource, even in plans over {FOCUS_OVER}")
     p.add_argument("--speed", type=int, default=900, metavar="MS", help="ms per apply wave (default 900)")
     p.add_argument("--quiet", action="store_true", help="skip the summary line (terraform already printed it)")
     return p.parse_args(argv)
@@ -73,6 +76,14 @@ def main(argv=None) -> int:
         return 0
     if not args.quiet:
         print(_summary_line(nodes))
+    total = len(nodes)
+    if total > FOCUS_OVER and not args.all:
+        nodes = focus(nodes)
+        if not nodes:
+            print(f"No changes among {total} resources.")
+            return 0
+        print(f"Showing the {len(nodes)} resources that change, out of {total}. Lines include dependencies "
+              f"through unchanged resources. Use --all to draw everything.")
 
     text_scale = float(os.environ.get("TFSEE_TEXT_SCALE", "1") or 1)
     final = draw(nodes, text_scale=text_scale)
@@ -88,7 +99,9 @@ def main(argv=None) -> int:
     columns = min(shutil.get_terminal_size().columns - 2, 200)
     waves = max(n.wave for n in nodes.values())
     write = sys.stdout.write
-    if args.no_animate or waves == 0:
+    if len(nodes) > ANIMATE_UP_TO and not args.no_animate:
+        print(f"{len(nodes)} resources is too many to animate smoothly; drawing the finished graph.")
+    if args.no_animate or waves == 0 or len(nodes) > ANIMATE_UP_TO:
         write(kitty.show(png(final), IMAGE_ID, columns) + "\n")
         return 0
 

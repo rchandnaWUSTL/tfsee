@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from tfsee import kitty
-from tfsee.plan import build, resource_of, summary
+from tfsee.plan import build, focus, resource_of, summary
 from tfsee.render import draw
 
 PLAN = json.loads((Path(__file__).parent / "fixtures" / "plan_v2.json").read_text())
@@ -47,3 +47,27 @@ def test_kitty_chunks_reassemble():
     assert all(keys in ("m=1", "m=0") for keys, _ in parts[1:]) and parts[-1][0].endswith("m=0")
     assert all(len(chunk) <= kitty.CHUNK for _, chunk in parts)
     assert base64.standard_b64decode("".join(chunk for _, chunk in parts)) == payload
+
+
+def test_focus_keeps_only_changes_with_true_order():
+    nodes = build(PLAN)
+    kept = focus(nodes)
+    assert set(kept) == {a for a, n in nodes.items() if n.action != "no-op"}
+    # app depends on database/cache/queue directly; database's own deps (subnets) are unchanged, so it's a root.
+    assert kept["terraform_data.app[0]"].deps == {"terraform_data.database", "terraform_data.cache[0]", "terraform_data.queue[0]"}
+    assert kept["terraform_data.database"].deps == set()
+    assert kept["terraform_data.alerts[0]"].wave > kept["terraform_data.load_balancer"].wave > kept["terraform_data.app[0]"].wave
+
+
+def test_scales_linearly():
+    import time
+    layers = [[f"t.r{l}_{i}" for i in range(100)] for l in range(20)]  # 2,000 resources, deep and wide
+    plan = {"resource_changes": [{"address": a, "mode": "managed", "change": {"actions": ["no-op"]}}
+                                 for layer in layers for a in layer],
+            "configuration": {"root_module": {"resources": [
+                {"address": a, "expressions": {"x": {"references": layers[l - 1][:4] if l else []}}}
+                for l, layer in enumerate(layers) for a in layer]}}}
+    start = time.time()
+    nodes = build(plan)
+    assert time.time() - start < 2
+    assert max(n.wave for n in nodes.values()) == 19
