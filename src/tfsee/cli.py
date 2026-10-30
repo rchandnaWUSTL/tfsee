@@ -74,7 +74,8 @@ def main(argv=None) -> int:
     if not args.quiet:
         print(_summary_line(nodes))
 
-    final = draw(nodes)
+    text_scale = float(os.environ.get("TFSEE_TEXT_SCALE", "1") or 1)
+    final = draw(nodes, text_scale=text_scale)
     if args.png:
         final.save(args.png)
     if not (sys.stdout.isatty() and kitty.supported()):
@@ -91,7 +92,7 @@ def main(argv=None) -> int:
         write(kitty.show(png(final), IMAGE_ID, columns) + "\n")
         return 0
 
-    frames = [png(draw(nodes, applied_through=w)) for w in range(waves + 1)] + [png(final)]
+    frames = [png(draw(nodes, applied_through=w, text_scale=text_scale)) for w in range(waves + 1)] + [png(final)]
     if kitty.native_animation():
         # Native animation: the terminal loops it, and your prompt comes right back.
         write(kitty.show(frames[0], IMAGE_ID, columns))
