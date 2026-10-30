@@ -73,12 +73,15 @@ def _order(nodes: dict[str, Node]) -> list[list[str]]:
     return columns
 
 
-def draw(nodes: dict[str, Node], applied_through: int | None = None, scale: int = 2) -> Image.Image:
+def draw(nodes: dict[str, Node], applied_through: int | None = None, scale: int = 2,
+         text_scale: float = 1.0) -> Image.Image:
     """applied_through=None draws the finished plan; an int draws an apply-order animation frame
-    where later steps are still pending (dimmed) and that step is the one applying now (glowing)."""
+    where later steps are still pending (dimmed) and that step is the one applying now (glowing).
+    text_scale>1 enlarges text and boxes relative to the gaps, e.g. for a video watched on a phone."""
     s = scale
-    name_font, type_font, small, title = _font(15 * s), _font(11 * s), _font(12 * s), _font(18 * s)
-    pad_x, box_h, gap_x, gap_y = 14 * s, 46 * s, 64 * s, 16 * s
+    sz = lambda v: round(v * s * text_scale)  # noqa: E731  (text-sized measurements)
+    name_font, type_font, small, title = _font(sz(15)), _font(sz(11)), _font(sz(12)), _font(sz(18))
+    pad_x, box_h, gap_x, gap_y = sz(14), sz(46), 64 * s / text_scale ** 0.5, 16 * s
 
     columns = _order(nodes)
     width_of = {}
@@ -103,11 +106,11 @@ def draw(nodes: dict[str, Node], applied_through: int | None = None, scale: int 
     x = margin + title.getbbox("terraform plan")[2] + 18 * s
     for count, label, action in ((add, "to add", "create"), (change, "to change", "update"), (destroy, "to destroy", "delete")):
         text = f"{SYMBOLS[action]} {count} {label}"
-        w = small.getbbox(text)[2] + 20 * s
-        d.rounded_rectangle((x, margin + 1 * s, x + w, margin + 25 * s), radius=12 * s,
+        w = small.getbbox(text)[2] + sz(20)
+        d.rounded_rectangle((x, margin + 1 * s, x + w, margin + sz(25)), radius=sz(12),
                             fill=_mix(COLORS[action], 0.16), outline=_mix(COLORS[action], 0.7), width=max(1, s))
-        d.text((x + 10 * s, margin + 5 * s), text, font=small, fill=INK)
-        x += w + 8 * s
+        d.text((x + sz(10), margin + sz(5)), text, font=small, fill=INK)
+        x += w + sz(8)
     if applied_through is not None:
         status = f"apply order · step {applied_through + 1} of {len(columns)}"
         d.text((width - margin - small.getbbox(status)[2], margin + 5 * s), status, font=small, fill=MUTED)
@@ -156,23 +159,23 @@ def draw(nodes: dict[str, Node], applied_through: int | None = None, scale: int 
         d.rounded_rectangle(box, radius=9 * s, fill=fill, outline=outline, width=2 * s)
         prefix, name = _split(a)
         dim = quiet or st == "pending"
-        d.text((box[0] + pad_x, box[1] + 7 * s), prefix, font=type_font, fill=FAINT if dim else MUTED)
+        d.text((box[0] + pad_x, box[1] + sz(7)), prefix, font=type_font, fill=FAINT if dim else MUTED)
         label = f"{SYMBOLS[n.action]} {name}"
-        d.text((box[0] + pad_x, box[1] + 21 * s), label, font=name_font, fill=MUTED if dim else INK)
+        d.text((box[0] + pad_x, box[1] + sz(21)), label, font=name_font, fill=MUTED if dim else INK)
         if n.action == "delete" and st == "done":
             sym_w = name_font.getbbox(f"{SYMBOLS[n.action]} ")[2]
             top, bottom = name_font.getbbox(label)[1], name_font.getbbox(label)[3]
-            mid = box[1] + 21 * s + (top + bottom) / 2 + 1 * s  # through the middle of the letters
+            mid = box[1] + sz(21) + (top + bottom) / 2 + 1 * s  # through the middle of the letters
             d.line((box[0] + pad_x + sym_w, mid, box[0] + pad_x + name_font.getbbox(label)[2], mid),
                    fill=_mix(color, 0.9), width=2 * s)
 
-    x, y = margin, img.height - margin - 14 * s  # legend: symbol + swatch + word, never color alone
+    x, y = margin, img.height - margin - sz(14)  # legend: symbol + swatch + word, never color alone
     for action, word in (("create", "create"), ("update", "update"), ("replace", "replace"),
                          ("delete", "destroy"), ("no-op", "unchanged")):
-        d.rounded_rectangle((x, y, x + 14 * s, y + 14 * s), radius=4 * s, fill=_mix(COLORS[action], 0.75))
+        d.rounded_rectangle((x, y, x + sz(14), y + sz(14)), radius=sz(4), fill=_mix(COLORS[action], 0.75))
         text = f"{SYMBOLS[action]} {word}"
-        d.text((x + 20 * s, y - 1 * s), text, font=small, fill=MUTED)
-        x += 20 * s + small.getbbox(text)[2] + 24 * s
+        d.text((x + sz(20), y - 1 * s), text, font=small, fill=MUTED)
+        x += sz(20) + small.getbbox(text)[2] + sz(24)
     return img
 
 

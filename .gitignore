@@ -11,3 +11,4 @@ dist/
 *.tfplan
 tfsee.png
 .DS_Store
+media/

@@ -28,7 +28,8 @@ terraform() {
   if [ "$sub" = "plan" ] && [ -t 1 ] && command -v tfsee >/dev/null 2>&1; then
     case " $* " in *" -out="*|*" -out "*) command terraform "$@"; return ;; esac
     local out rc
-    out="$(mktemp -t tfsee).tfplan"
+    mkdir -p "$chdir/.terraform" && out=".terraform/tfsee.tfplan"
+    [ "$chdir" != "." ] && out="$chdir/$out"
     command terraform "$@" -out="$out"; rc=$?
     [ $rc -eq 0 ] && tfsee "$chdir" --plan "$out" --quiet
     return $rc  # plan file kept so the "terraform apply <file>" hint above still works
