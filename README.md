@@ -15,8 +15,8 @@ You need Python 3.10+, Terraform, and a terminal that can draw images: [Ghostty]
 **1. Install**
 
 ```sh
-uv tool install tfsee
-# or: pipx install tfsee
+uv tool install git+https://github.com/rchandnaWUSTL/tfsee
+# or: pipx install git+https://github.com/rchandnaWUSTL/tfsee
 ```
 
 **2. Hook it into `terraform plan`**
